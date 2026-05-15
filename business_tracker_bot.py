@@ -367,7 +367,7 @@ async def auto_weekly_tasks():
                 if channel:
                     await channel.send(report + "\n💾 **Auto weekly report saved.**")
 
-       # Monday 12:01 AM auto reset
+    # Monday 12:01 AM auto reset
     if now.weekday() == 0 and now.hour == 0 and now.minute == 1:
         today = now.strftime("%Y-%m-%d")
 
