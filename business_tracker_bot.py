@@ -46,9 +46,13 @@ def default_business():
         "hiring_notes": "",
         "proof": "",
         "total_opens": 0,
-        "weeks_inactive": 0
+        "weeks_inactive": 0,
+        "days_opened": 0,
+        "total_minutes_open": 0,
+        "currently_open": False,
+        "open_time": "",
+        "last_session": ""
     }
-
 
 def load_data():
     if not os.path.exists(DATA_FILE):
@@ -96,73 +100,60 @@ def find_business(data, business):
     return None
 
 
+def format_minutes(minutes):
+    hours = minutes // 60
+    mins = minutes % 60
+    return f"{hours}h {mins}m"
+
+
 def make_report(data):
     businesses = dict(sorted(data["businesses"].items()))
 
-    opened = []
-    not_opened = []
-    event_hosts = []
-    hiring_hosts = []
+    lines = []
 
     for name, info in businesses.items():
+        opened = "✅" if info.get("opened") else "❌"
+        event = "✅" if info.get("hosted_event") else "❌"
+        hiring = "✅" if info.get("hiring_event") else "❌"
+        proof = "✅" if info.get("proof") else "❌"
 
-        line = f"✅ {name}" if info["opened"] else f"❌ {name}"
+        line = (
+            f"**{name}**\n"
+            f"{opened} Opened | {event} Event | {hiring} Hiring | {proof} Proof"
+        )
 
-        details = []
+        time_line = (
+            f"\n📅 Days Opened: {info.get('days_opened', 0)}"
+            f"\n⏰ Total Time Open: {format_minutes(info.get('total_minutes_open', 0))}"
+            f"\n🟢 Currently Open: {'Yes' if info.get('currently_open') else 'No'}"
+        )
+
+        if info.get("last_session"):
+            time_line += f"\n🕒 Last Session: {info['last_session']}"
+
+        line += time_line
+
+        notes = []
 
         if info.get("notes"):
-            details.append(f"📝 {info['notes']}")
-
+            notes.append(f"📝 {info['notes']}")
+        if info.get("event_notes"):
+            notes.append(f"🎉 {info['event_notes']}")
+        if info.get("hiring_notes"):
+            notes.append(f"💼 {info['hiring_notes']}")
         if info.get("proof"):
-            details.append(f"📸 {info['proof']}")
+            notes.append(f"📸 {info['proof']}")
 
-        if details:
-            line += " — " + " | ".join(details)
+        if notes:
+            line += "\n" + "\n".join(notes)
 
-        if info["opened"]:
-            opened.append(line)
-        else:
-            not_opened.append(line)
-
-        # Hosted Events
-        if info.get("hosted_event"):
-            event_line = f"🎉 {name}"
-
-            if info.get("event_notes"):
-                event_line += f" — 📝 {info['event_notes']}"
-
-            event_hosts.append(event_line)
-
-        # Hiring Events
-        if info.get("hiring_event"):
-            hiring_line = f"💼 {name}"
-
-            if info.get("hiring_notes"):
-                hiring_line += f" — 📝 {info['hiring_notes']}"
-
-            hiring_hosts.append(hiring_line)
+        lines.append(line)
 
     return f"""
-💼 **FiveM Business Weekly Check-In**
+🗃️ **Business Weekly Check-In Station**
 📅 **Week Saved:** {datetime.now().strftime("%B %d, %Y")}
 
-───────────────
-✅ **Opened This Week**
-{chr(10).join(opened) if opened else "None marked open yet."}
-
-───────────────
-❌ **No Opening Seen**
-{chr(10).join(not_opened) if not_opened else "Everyone opened this week!"}
-
-───────────────
-🎉 **Hosted Events This Week**
-{chr(10).join(event_hosts) if event_hosts else "No hosted events recorded."}
-
-───────────────
-💼 **Hiring / Job Events**
-{chr(10).join(hiring_hosts) if hiring_hosts else "No hiring events recorded."}
-
-───────────────
+{chr(10).join(lines)}
 """
 
 def reset_week_data(data):
@@ -180,6 +171,12 @@ def reset_week_data(data):
         info["proof"] = ""
         info["event_notes"] = ""
         info["hiring_notes"] = ""
+        info["days_opened"] = 0
+        info["total_minutes_open"] = 0
+        info["currently_open"] = False
+        info["open_time"] = ""
+        info["last_session"] = ""
+        info["total_opens"] = 0
 
     save_data(data)
 
@@ -220,9 +217,42 @@ class BusinessModal(discord.ui.Modal):
         note_text = str(self.notes)
 
         if self.action == "Opened":
-            data["businesses"][match]["opened"] = True
-            data["businesses"][match]["notes"] = note_text
-            message = f"✅ **{match}** marked as opened this week."
+            info = data["businesses"][match]
+
+            if not info.get("currently_open"):
+                info["currently_open"] = True
+                info["open_time"] = datetime.now().isoformat()
+                info["days_opened"] += 1
+
+            info["opened"] = True
+            info["notes"] = note_text
+
+            message = f"✅ **{match}** marked as opened and clock started."
+
+        elif self.action == "Close":
+            info = data["businesses"][match]
+
+            if not info.get("currently_open") or not info.get("open_time"):
+                await interaction.response.send_message(
+                    f"⚠️ **{match}** is not currently marked open.",
+                    ephemeral=True
+                )
+                return
+
+            opened_at = datetime.fromisoformat(info["open_time"])
+            now = datetime.now()
+
+            minutes_open = int((now - opened_at).total_seconds() / 60)
+
+            info["total_minutes_open"] += minutes_open
+            info["currently_open"] = False
+            info["open_time"] = ""
+            info["last_session"] = format_minutes(minutes_open)
+
+            message = (
+                f"🔒 **{match}** closed. "
+                f"Time open: **{format_minutes(minutes_open)}**."
+            )
 
         elif self.action == "Event":
             data["businesses"][match]["hosted_event"] = True
@@ -253,6 +283,17 @@ class BusinessPanel(discord.ui.View):
     @discord.ui.button(label="Opened", style=discord.ButtonStyle.green, emoji="✅", custom_id="business_opened_button")
     async def opened_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(BusinessModal("Opened"))
+
+    @discord.ui.button(label="Close", style=discord.ButtonStyle.danger, emoji="🔒", custom_id="business_close_button")
+    async def close_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not is_manager(interaction):
+            await interaction.response.send_message(
+                "❌ You do not have permission to use this.",
+                ephemeral=True
+            )
+            return
+
+        await interaction.response.send_modal(BusinessModal("Close"))
 
     @discord.ui.button(label="Event", style=discord.ButtonStyle.blurple, emoji="🎉", custom_id="business_event_button")
     async def event_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -326,26 +367,12 @@ async def auto_weekly_tasks():
                 if channel:
                     await channel.send(report + "\n💾 **Auto weekly report saved.**")
 
-    # Monday 12:01 AM auto reset
+       # Monday 12:01 AM auto reset
     if now.weekday() == 0 and now.hour == 0 and now.minute == 1:
         today = now.strftime("%Y-%m-%d")
 
         if data.get("last_auto_reset") != today:
-            for business, info in data["businesses"].items():
-                if info["opened"]:
-                    info["total_opens"] += 1
-                    info["weeks_inactive"] = 0
-                else:
-                    info["weeks_inactive"] += 1
-
-                info["opened"] = False
-                info["hosted_event"] = False
-                info["hiring_event"] = False
-                info["notes"] = ""
-                info["proof"] = ""
-                info["event_notes"] = ""
-                info["hiring_notes"] = ""
-
+            reset_week_data(data)
             data["last_auto_reset"] = today
             save_data(data)
 
@@ -370,12 +397,21 @@ async def business_opened(interaction: discord.Interaction, business: str, notes
         await interaction.response.send_message("❌ Business not found. Use `/business_add` first.", ephemeral=True)
         return
 
-    data["businesses"][match]["opened"] = True
-    data["businesses"][match]["notes"] = notes
+    info = data["businesses"][match]
+
+    if not info.get("currently_open"):
+        info["currently_open"] = True
+        info["open_time"] = datetime.now().isoformat()
+        info["days_opened"] += 1
+
+    info["opened"] = True
+    info["notes"] = notes
+
     save_data(data)
 
-    await interaction.response.send_message(f"✅ **{match}** marked as opened this week.")
-
+    await interaction.response.send_message(
+        f"✅ **{match}** marked as opened and clock started."
+    )
 
 @bot.tree.command(name="business_notopened", description="Mark a business as not opened this week.")
 @app_commands.describe(business="Business name")
@@ -578,13 +614,23 @@ async def business_panel(interaction: discord.Interaction):
         return
 
     embed = discord.Embed(
-        title="🗃️ Business Management Panel",
-        description="Use the buttons below to manage weekly business activity.",
+        title="🗃️ Business Weekly Check-In Station",
+        description=(
+            "Use the buttons below to update weekly business activity.\n\n"
+            "✅ **Opened** — Mark a business as opened\n"
+            "🎉 **Event** — Mark a business event\n"
+            "💼 **Hiring** — Mark a hiring/job event\n"
+            "📸 **Proof** — Add screenshot/proof link\n"
+            "📝 **Notes** — Add notes\n"
+            "📊 **Report** — View weekly checklist\n"
+            "🔄 **Reset** — Reset the week"
+        ),
         color=discord.Color.purple()
     )
 
-    await interaction.response.send_message(embed=embed, view=BusinessPanel())
+    embed.set_footer(text="Business Weekly Check Ins")
 
+    await interaction.response.send_message(embed=embed, view=BusinessPanel())
 
 @bot.tree.command(name="business_resetweek", description="Reset all businesses for a new week.")
 async def business_resetweek(interaction: discord.Interaction):
