@@ -314,21 +314,38 @@ class BusinessPanel(discord.ui.View):
     @discord.ui.button(label="Report", style=discord.ButtonStyle.success, emoji="📊", custom_id="business_report_button")
     async def report_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not is_manager(interaction):
-            await interaction.response.send_message("❌ You do not have permission to use this.", ephemeral=True)
+            await interaction.response.send_message(
+                "❌ You do not have permission to use this.",
+                ephemeral=True
+            )
             return
 
         data = load_data()
-        await interaction.response.send_message(make_report(data), ephemeral=True)
+        report = make_report(data)
+
+        chunks = [report[i:i + 1900] for i in range(0, len(report), 1900)]
+
+        await interaction.response.send_message(chunks[0], ephemeral=True)
+
+        for chunk in chunks[1:]:
+            await interaction.followup.send(chunk, ephemeral=True)
 
     @discord.ui.button(label="Reset", style=discord.ButtonStyle.danger, emoji="🔄", custom_id="business_reset_button")
     async def reset_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not is_manager(interaction):
-            await interaction.response.send_message("❌ You do not have permission to use this.", ephemeral=True)
+            await interaction.response.send_message(
+                "❌ You do not have permission to use this.",
+                ephemeral=True
+            )
             return
 
         data = load_data()
         reset_week_data(data)
-        await interaction.response.send_message("🔄 Weekly business tracker has been reset.", ephemeral=True)
+
+        await interaction.response.send_message(
+            "🔄 Weekly business tracker has been reset.",
+            ephemeral=True
+        )
 
 intents = discord.Intents.default()
 intents.guilds = True
@@ -380,7 +397,14 @@ async def auto_weekly_tasks():
 @bot.tree.command(name="business_list", description="Show all IC businesses and weekly status.")
 async def business_list(interaction: discord.Interaction):
     data = load_data()
-    await interaction.response.send_message(make_report(data))
+    report = make_report(data)
+
+    chunks = [report[i:i + 1900] for i in range(0, len(report), 1900)]
+
+    await interaction.response.send_message(chunks[0], ephemeral=True)
+
+    for chunk in chunks[1:]:
+        await interaction.followup.send(chunk, ephemeral=True)
 
 
 @bot.tree.command(name="business_opened", description="Mark a business as opened this week.")
