@@ -196,7 +196,7 @@ class BusinessModal(discord.ui.Modal, title="Business Update"):
 
         self.notes = discord.ui.TextInput(
             label="Notes / Proof Link",
-            placeholder="Add notes here. If you have a photo, upload it in Discord first, copy the image link, then paste it here.",
+            placeholder="Add notes or paste image link here.",
             required=False,
             style=discord.TextStyle.paragraph
         )
@@ -457,7 +457,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 @bot.event
 async def on_ready():
-    await bot.add_view(BusinessPanel())
+    bot.add_view(BusinessPanel())
     await bot.tree.sync()
     auto_weekly_tasks.start()
     print(f"✅ Logged in as {bot.user}")
