@@ -193,21 +193,14 @@ class BusinessModal(discord.ui.Modal):
         )
 
         self.notes = discord.ui.TextInput(
-            label="Notes",
-            placeholder="Add notes, event info, or hiring info",
+            label="Notes / Proof Link",
+            placeholder="Add notes here. If you have a photo, upload it in Discord first, copy the image link, then paste it here.",
             required=False,
             style=discord.TextStyle.paragraph
         )
 
-        self.proof = discord.ui.TextInput(
-            label="Proof Image / Screenshot Link",
-            placeholder="Paste Discord image link here",
-            required=False
-        )
-
         self.add_item(self.business)
         self.add_item(self.notes)
-        self.add_item(self.proof)
 
     async def on_submit(self, interaction: discord.Interaction):
         if not is_manager(interaction):
@@ -229,7 +222,6 @@ class BusinessModal(discord.ui.Modal):
 
         info = data["businesses"][match]
         note_text = str(self.notes)
-        proof_text = str(self.proof)
 
         if self.action == "Opened":
             if not info.get("currently_open"):
@@ -239,9 +231,6 @@ class BusinessModal(discord.ui.Modal):
 
             info["opened"] = True
             info["notes"] = note_text
-
-            if proof_text:
-                info["proof"] = proof_text
 
             message = f"✅ **{match}** marked as opened and clock started."
 
@@ -264,9 +253,6 @@ class BusinessModal(discord.ui.Modal):
             if note_text:
                 info["notes"] = note_text
 
-            if proof_text:
-                info["proof"] = proof_text
-
             message = (
                 f"🔒 **{match}** closed. "
                 f"Time open: **{format_minutes(minutes_open)}**."
@@ -276,17 +262,11 @@ class BusinessModal(discord.ui.Modal):
             info["hosted_event"] = True
             info["event_notes"] = note_text
 
-            if proof_text:
-                info["proof"] = proof_text
-
             message = f"🎉 **{match}** marked as hosted an event this week."
 
         elif self.action == "Hiring":
             info["hiring_event"] = True
             info["hiring_notes"] = note_text
-
-            if proof_text:
-                info["proof"] = proof_text
 
             message = f"💼 **{match}** marked as hosted a hiring/job event this week."
 
@@ -302,11 +282,23 @@ class BusinessPanel(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="Opened", style=discord.ButtonStyle.green, emoji="✅", custom_id="business_opened_button")
+    @discord.ui.button(
+        label="Opened",
+        style=discord.ButtonStyle.green,
+        emoji="✅",
+        custom_id="business_opened_button",
+        row=0
+    )
     async def opened_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(BusinessModal("Opened"))
 
-    @discord.ui.button(label="Close", style=discord.ButtonStyle.danger, emoji="🔒", custom_id="business_close_button")
+    @discord.ui.button(
+        label="Close",
+        style=discord.ButtonStyle.danger,
+        emoji="🔒",
+        custom_id="business_close_button",
+        row=0
+    )
     async def close_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not is_manager(interaction):
             await interaction.response.send_message(
@@ -317,15 +309,33 @@ class BusinessPanel(discord.ui.View):
 
         await interaction.response.send_modal(BusinessModal("Close"))
 
-    @discord.ui.button(label="Event", style=discord.ButtonStyle.blurple, emoji="🎉", custom_id="business_event_button")
+    @discord.ui.button(
+        label="Event",
+        style=discord.ButtonStyle.blurple,
+        emoji="🎉",
+        custom_id="business_event_button",
+        row=0
+    )
     async def event_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(BusinessModal("Event"))
 
-    @discord.ui.button(label="Hiring", style=discord.ButtonStyle.primary, emoji="💼", custom_id="business_hiring_button")
+    @discord.ui.button(
+        label="Hiring",
+        style=discord.ButtonStyle.primary,
+        emoji="💼",
+        custom_id="business_hiring_button",
+        row=1
+    )
     async def hiring_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(BusinessModal("Hiring"))
 
-    @discord.ui.button(label="Report", style=discord.ButtonStyle.success, emoji="📊", custom_id="business_report_button")
+    @discord.ui.button(
+        label="Report",
+        style=discord.ButtonStyle.success,
+        emoji="📊",
+        custom_id="business_report_button",
+        row=1
+    )
     async def report_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not is_manager(interaction):
             await interaction.response.send_message(
@@ -335,16 +345,92 @@ class BusinessPanel(discord.ui.View):
             return
 
         data = load_data()
-        report = make_report(data)
 
-        chunks = [report[i:i + 1900] for i in range(0, len(report), 1900)]
+        embeds = []
 
-        await interaction.response.send_message(chunks[0], ephemeral=True)
+        businesses = dict(sorted(data["businesses"].items()))
 
-        for chunk in chunks[1:]:
-            await interaction.followup.send(chunk, ephemeral=True)
+        for name, info in businesses.items():
 
-    @discord.ui.button(label="Reset", style=discord.ButtonStyle.danger, emoji="🔄", custom_id="business_reset_button")
+            opened = "✅" if info.get("opened") else "❌"
+            event = "✅" if info.get("hosted_event") else "❌"
+            hiring = "✅" if info.get("hiring_event") else "❌"
+
+            status = "🟢 OPEN" if info.get("currently_open") else "🔴 NOT OPEN"
+
+            embed = discord.Embed(
+                title=f"🏢 {name}",
+                description=f"### {status}",
+                color=discord.Color.purple()
+            )
+
+            embed.add_field(
+                name="Activity",
+                value=(
+                    f"{opened} Opened\n"
+                    f"{event} Event\n"
+                    f"{hiring} Hiring"
+                ),
+                inline=True
+            )
+
+            embed.add_field(
+                name="Days Opened",
+                value=str(info.get("days_opened", 0)),
+                inline=True
+            )
+
+            embed.add_field(
+                name="Total Time Open",
+                value=format_minutes(info.get("total_minutes_open", 0)),
+                inline=True
+            )
+
+            embed.add_field(
+                name="Currently Open",
+                value="Yes" if info.get("currently_open") else "No",
+                inline=True
+            )
+
+            if info.get("last_session"):
+                embed.add_field(
+                    name="Last Session",
+                    value=info["last_session"],
+                    inline=True
+                )
+
+            notes = []
+
+            if info.get("notes"):
+                notes.append(f"📝 {info['notes']}")
+
+            if info.get("event_notes"):
+                notes.append(f"🎉 {info['event_notes']}")
+
+            if info.get("hiring_notes"):
+                notes.append(f"💼 {info['hiring_notes']}")
+
+            if notes:
+                embed.add_field(
+                    name="Notes",
+                    value="\n".join(notes),
+                    inline=False
+                )
+
+            embeds.append(embed)
+
+        await interaction.response.send_message(
+            embeds=embeds[:10],
+            ephemeral=True
+        )
+
+    @discord.ui.button(
+        label="Reset",
+        style=discord.ButtonStyle.danger,
+        emoji="🔄",
+        custom_id="business_reset_button",
+        row=1
+    )
     async def reset_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not is_manager(interaction):
             await interaction.response.send_message(
