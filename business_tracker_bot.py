@@ -115,34 +115,32 @@ def make_report(data):
         opened = "✅" if info.get("opened") else "❌"
         event = "✅" if info.get("hosted_event") else "❌"
         hiring = "✅" if info.get("hiring_event") else "❌"
-        proof = "✅" if info.get("proof") else "❌"
+        status = "🟢 OPEN" if info.get("currently_open") else "🔴 NOT OPEN"
 
-        line = (
-            f"**{name}**\n"
-            f"{opened} Opened | {event} Event | {hiring} Hiring | {proof} Proof"
-        )
+        line = f"""
+━━━━━━━━━━━━━━━━━━━━
+**🏢 {name}** — `{status}`
 
-        time_line = (
-            f"\n📅 Days Opened: {info.get('days_opened', 0)}"
-            f"\n⏰ Total Time Open: {format_minutes(info.get('total_minutes_open', 0))}"
-            f"\n🟢 Currently Open: {'Yes' if info.get('currently_open') else 'No'}"
-        )
+{opened} **Opened**  |  {event} **Event**  |  {hiring} **Hiring**
+
+📅 **Days Opened:** `{info.get('days_opened', 0)}`
+⏰ **Total Time Open:** `{format_minutes(info.get('total_minutes_open', 0))}`
+🟢 **Currently Open:** `{'Yes' if info.get('currently_open') else 'No'}`
+"""
 
         if info.get("last_session"):
-            time_line += f"\n🕒 Last Session: {info['last_session']}"
-
-        line += time_line
+            line += f"🕒 **Last Session:** `{info['last_session']}`\n"
 
         notes = []
 
         if info.get("notes"):
-            notes.append(f"📝 {info['notes']}")
+            notes.append(f"📝 **Notes:** {info['notes']}")
         if info.get("event_notes"):
-            notes.append(f"🎉 {info['event_notes']}")
+            notes.append(f"🎉 **Event Notes:** {info['event_notes']}")
         if info.get("hiring_notes"):
-            notes.append(f"💼 {info['hiring_notes']}")
+            notes.append(f"💼 **Hiring Notes:** {info['hiring_notes']}")
         if info.get("proof"):
-            notes.append(f"📸 {info['proof']}")
+            notes.append(f"📸 **Proof:** {info['proof']}")
 
         if notes:
             line += "\n" + "\n".join(notes)
@@ -150,10 +148,12 @@ def make_report(data):
         lines.append(line)
 
     return f"""
-🗃️ **Business Weekly Check-In Station**
+🗃️ **BUSINESS WEEKLY CHECK-IN STATION**
 📅 **Week Saved:** {datetime.now().strftime("%B %d, %Y")}
 
 {chr(10).join(lines)}
+
+✨ Use the buttons above to update weekly business activity.
 """
 
 def reset_week_data(data):
@@ -193,32 +193,45 @@ class BusinessModal(discord.ui.Modal):
         )
 
         self.notes = discord.ui.TextInput(
-            label="Notes / Proof",
-            placeholder="Add notes, event info, hiring info, or proof link",
+            label="Notes",
+            placeholder="Add notes, event info, or hiring info",
             required=False,
             style=discord.TextStyle.paragraph
         )
 
+        self.proof = discord.ui.TextInput(
+            label="Proof Image / Screenshot Link",
+            placeholder="Paste Discord image link here",
+            required=False
+        )
+
         self.add_item(self.business)
         self.add_item(self.notes)
+        self.add_item(self.proof)
 
     async def on_submit(self, interaction: discord.Interaction):
         if not is_manager(interaction):
-            await interaction.response.send_message("❌ You do not have permission to use this.", ephemeral=True)
+            await interaction.response.send_message(
+                "❌ You do not have permission to use this.",
+                ephemeral=True
+            )
             return
 
         data = load_data()
         match = find_business(data, str(self.business))
 
         if not match:
-            await interaction.response.send_message("❌ Business not found. Use `/business_add` first.", ephemeral=True)
+            await interaction.response.send_message(
+                "❌ Business not found. Use `/business_add` first.",
+                ephemeral=True
+            )
             return
 
+        info = data["businesses"][match]
         note_text = str(self.notes)
+        proof_text = str(self.proof)
 
         if self.action == "Opened":
-            info = data["businesses"][match]
-
             if not info.get("currently_open"):
                 info["currently_open"] = True
                 info["open_time"] = datetime.now().isoformat()
@@ -227,11 +240,12 @@ class BusinessModal(discord.ui.Modal):
             info["opened"] = True
             info["notes"] = note_text
 
+            if proof_text:
+                info["proof"] = proof_text
+
             message = f"✅ **{match}** marked as opened and clock started."
 
         elif self.action == "Close":
-            info = data["businesses"][match]
-
             if not info.get("currently_open") or not info.get("open_time"):
                 await interaction.response.send_message(
                     f"⚠️ **{match}** is not currently marked open.",
@@ -240,14 +254,18 @@ class BusinessModal(discord.ui.Modal):
                 return
 
             opened_at = datetime.fromisoformat(info["open_time"])
-            now = datetime.now()
-
-            minutes_open = int((now - opened_at).total_seconds() / 60)
+            minutes_open = int((datetime.now() - opened_at).total_seconds() / 60)
 
             info["total_minutes_open"] += minutes_open
             info["currently_open"] = False
             info["open_time"] = ""
             info["last_session"] = format_minutes(minutes_open)
+
+            if note_text:
+                info["notes"] = note_text
+
+            if proof_text:
+                info["proof"] = proof_text
 
             message = (
                 f"🔒 **{match}** closed. "
@@ -255,25 +273,29 @@ class BusinessModal(discord.ui.Modal):
             )
 
         elif self.action == "Event":
-            data["businesses"][match]["hosted_event"] = True
-            data["businesses"][match]["event_notes"] = note_text
+            info["hosted_event"] = True
+            info["event_notes"] = note_text
+
+            if proof_text:
+                info["proof"] = proof_text
+
             message = f"🎉 **{match}** marked as hosted an event this week."
 
         elif self.action == "Hiring":
-            data["businesses"][match]["hiring_event"] = True
-            data["businesses"][match]["hiring_notes"] = note_text
+            info["hiring_event"] = True
+            info["hiring_notes"] = note_text
+
+            if proof_text:
+                info["proof"] = proof_text
+
             message = f"💼 **{match}** marked as hosted a hiring/job event this week."
 
-        elif self.action == "Proof":
-            data["businesses"][match]["proof"] = note_text
-            message = f"📸 Proof added for **{match}**."
-
-        elif self.action == "Notes":
-            data["businesses"][match]["notes"] = note_text
-            message = f"📝 Note added for **{match}**."
-
         save_data(data)
-        await interaction.response.send_message(message, ephemeral=True)
+
+        await interaction.response.send_message(
+            message,
+            ephemeral=True
+        )
 
 
 class BusinessPanel(discord.ui.View):
@@ -302,14 +324,6 @@ class BusinessPanel(discord.ui.View):
     @discord.ui.button(label="Hiring", style=discord.ButtonStyle.primary, emoji="💼", custom_id="business_hiring_button")
     async def hiring_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(BusinessModal("Hiring"))
-
-    @discord.ui.button(label="Proof", style=discord.ButtonStyle.secondary, emoji="📸", custom_id="business_proof_button")
-    async def proof_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(BusinessModal("Proof"))
-
-    @discord.ui.button(label="Notes", style=discord.ButtonStyle.secondary, emoji="📝", custom_id="business_notes_button")
-    async def notes_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(BusinessModal("Notes"))
 
     @discord.ui.button(label="Report", style=discord.ButtonStyle.success, emoji="📊", custom_id="business_report_button")
     async def report_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -498,46 +512,6 @@ async def business_hiring(interaction: discord.Interaction, business: str, notes
 
     await interaction.response.send_message(f"💼 **{match}** marked as hosted a hiring/job event this week.")
 
-@bot.tree.command(name="business_proof", description="Add proof or screenshot link for a business.")
-@app_commands.describe(business="Business name", proof="Screenshot link or proof note")
-async def business_proof(interaction: discord.Interaction, business: str, proof: str):
-    if not is_manager(interaction):
-        await interaction.response.send_message("❌ You do not have permission to use this.", ephemeral=True)
-        return
-
-    data = load_data()
-    match = find_business(data, business)
-
-    if not match:
-        await interaction.response.send_message("❌ Business not found.", ephemeral=True)
-        return
-
-    data["businesses"][match]["proof"] = proof
-    save_data(data)
-
-    await interaction.response.send_message(f"📸 Proof added for **{match}**.")
-
-
-@bot.tree.command(name="business_note", description="Add or update notes for a business.")
-@app_commands.describe(business="Business name", note="Note to save")
-async def business_note(interaction: discord.Interaction, business: str, note: str):
-    if not is_manager(interaction):
-        await interaction.response.send_message("❌ You do not have permission to use this.", ephemeral=True)
-        return
-
-    data = load_data()
-    match = find_business(data, business)
-
-    if not match:
-        await interaction.response.send_message("❌ Business not found.", ephemeral=True)
-        return
-
-    data["businesses"][match]["notes"] = note
-    save_data(data)
-
-    await interaction.response.send_message(f"📝 Note added for **{match}**.")
-
-
 @bot.tree.command(name="business_stats", description="Show business activity stats.")
 async def business_stats(interaction: discord.Interaction):
     data = load_data()
@@ -644,8 +618,6 @@ async def business_panel(interaction: discord.Interaction):
             "✅ **Opened** — Mark a business as opened\n"
             "🎉 **Event** — Mark a business event\n"
             "💼 **Hiring** — Mark a hiring/job event\n"
-            "📸 **Proof** — Add screenshot/proof link\n"
-            "📝 **Notes** — Add notes\n"
             "📊 **Report** — View weekly checklist\n"
             "🔄 **Reset** — Reset the week"
         ),
