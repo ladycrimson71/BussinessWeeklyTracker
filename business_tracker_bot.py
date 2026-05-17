@@ -181,9 +181,11 @@ def reset_week_data(data):
     save_data(data)
 
 
-class BusinessModal(discord.ui.Modal):
+class BusinessModal(discord.ui.Modal, title="Business Update"):
     def __init__(self, action):
-        super().__init__(title=f"Business {action}")
+        super().__init__()
+
+        self.title = f"Business {action}"
         self.action = action
 
         self.business = discord.ui.TextInput(
