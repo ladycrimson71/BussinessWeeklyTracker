@@ -715,6 +715,71 @@ async def business_panel(interaction: discord.Interaction):
 
     await interaction.response.send_message(embed=embed, view=BusinessPanel())
 
+@bot.tree.command(name="business_timefix", description="Add or remove open time from a business.")
+@app_commands.describe(
+    action="Choose add or remove",
+    business="Business name",
+    hours="Hours to add/remove",
+    minutes="Minutes to add/remove",
+    reason="Reason for the time fix"
+)
+@app_commands.choices(action=[
+    app_commands.Choice(name="Add Time", value="add"),
+    app_commands.Choice(name="Remove Time", value="remove"),
+])
+async def business_timefix(
+    interaction: discord.Interaction,
+    action: app_commands.Choice[str],
+    business: str,
+    hours: int = 0,
+    minutes: int = 0,
+    reason: str = "No reason given"
+):
+    if not is_manager(interaction):
+        await interaction.response.send_message(
+            "❌ You do not have permission to use this.",
+            ephemeral=True
+        )
+        return
+
+    total_minutes = (hours * 60) + minutes
+
+    if total_minutes <= 0:
+        await interaction.response.send_message(
+            "❌ Please enter hours or minutes greater than 0.",
+            ephemeral=True
+        )
+        return
+
+    data = load_data()
+    match = find_business(data, business)
+
+    if not match:
+        await interaction.response.send_message(
+            "❌ Business not found.",
+            ephemeral=True
+        )
+        return
+
+    info = data["businesses"][match]
+
+    if action.value == "add":
+        info["total_minutes_open"] += total_minutes
+        action_text = "added to"
+    else:
+        info["total_minutes_open"] = max(0, info["total_minutes_open"] - total_minutes)
+        action_text = "removed from"
+
+    info["notes"] = f"⏰ Time fix: {format_minutes(total_minutes)} {action_text} total time. Reason: {reason}"
+
+    save_data(data)
+
+    await interaction.response.send_message(
+        f"✅ **{format_minutes(total_minutes)}** has been {action_text} **{match}**.\n"
+        f"📝 Reason: {reason}",
+        ephemeral=True
+    )
+
 @bot.tree.command(name="business_resetweek", description="Reset all businesses for a new week.")
 async def business_resetweek(interaction: discord.Interaction):
     if not is_manager(interaction):
